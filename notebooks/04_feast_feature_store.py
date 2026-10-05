@@ -123,6 +123,7 @@ assert res.returncode == 0, f"materialize failed: {res.stderr}"
 
 # %%
 import time
+import math
 
 from feast import FeatureStore
 
@@ -147,7 +148,7 @@ print(f"Single lookup: {single_latency_ms:.2f}ms")
 print({k: v[0] for k, v in features.items()})
 
 # %% [markdown]
-# ## 5. TODO — Batch latency benchmark (100 lookups, P99)
+# ## 5. Batch latency benchmark (100 lookups, P99)
 
 # %%
 latencies: list[float] = []
@@ -160,10 +161,18 @@ for i in range(100):
     ).to_dict()
     latencies.append((time.perf_counter() - t0) * 1000)
 
-latencies.sort()
-p50 = latencies[50]
-p95 = latencies[95]
-p99 = latencies[99]
+def percentile(values: list[float], p: float) -> float:
+    if not values:
+        return 0.0
+    if not 0 <= p <= 1:
+        raise ValueError("p must be between 0 and 1")
+    ordered = sorted(values)
+    return ordered[max(0, min(math.ceil(len(ordered) * p) - 1, len(ordered) - 1))]
+
+
+p50 = percentile(latencies, 0.50)
+p95 = percentile(latencies, 0.95)
+p99 = percentile(latencies, 0.99)
 print(f"Online lookup latency over 100 calls:")
 print(f"  P50 = {p50:.2f}ms")
 print(f"  P95 = {p95:.2f}ms")

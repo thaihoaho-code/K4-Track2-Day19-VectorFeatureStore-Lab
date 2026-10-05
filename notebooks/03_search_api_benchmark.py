@@ -63,7 +63,7 @@ for h in body["hits"][:3]:
     print(f"  {h['doc_id']:>14}  score={h['score']:.4f}  {h['title']}")
 
 # %% [markdown]
-# ## 3. TODO — Latency benchmark (100 queries × 3 modes)
+# ## 3. Latency benchmark (100 queries × 3 modes)
 #
 # Dùng 50 golden queries × 2 reps = 100 calls/mode. Ghi nhận latency từ
 # `body["latency_ms"]` (server-side, đã trừ network) HOẶC từ wall-clock httpx
@@ -73,6 +73,7 @@ for h in body["hits"][:3]:
 
 # %%
 import json
+import math
 
 DATA = ROOT / "data"
 golden = [json.loads(l) for l in (DATA / "golden_set.jsonl").open(encoding="utf-8")]
@@ -82,7 +83,10 @@ def percentile(values: list[float], p: float) -> float:
     n = len(values)
     if n == 0:
         return 0.0
-    return sorted(values)[min(int(n * p), n - 1)]
+    if not 0 <= p <= 1:
+        raise ValueError("p must be between 0 and 1")
+    # Nearest-rank percentile: rank=ceil(p*n), converted to a zero-based index.
+    return sorted(values)[max(0, min(math.ceil(n * p) - 1, n - 1))]
 
 
 def benchmark_mode(mode: str, reps: int = 2) -> dict[str, float]:
@@ -92,8 +96,12 @@ def benchmark_mode(mode: str, reps: int = 2) -> dict[str, float]:
         for q in golden:
             t0 = time.perf_counter()
             r = httpx.get(f"{URL}/search", params={"q": q["query"], "mode": mode})
+            r.raise_for_status()
+            payload = r.json()
+            if "latency_ms" not in payload:
+                raise ValueError("/search response is missing latency_ms")
             wall_latencies.append((time.perf_counter() - t0) * 1000)
-            server_latencies.append(r.json()["latency_ms"])
+            server_latencies.append(float(payload["latency_ms"]))
     return {
         "p50_server": percentile(server_latencies, 0.50),
         "p95_server": percentile(server_latencies, 0.95),
